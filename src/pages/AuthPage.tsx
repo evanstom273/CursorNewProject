@@ -1,18 +1,33 @@
 import { LayoutDashboard } from 'lucide-react'
 import { useState } from 'react'
+import { GoogleIcon } from '@/components/icons/GoogleIcon'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Separator } from '@/components/ui/separator'
 import { useAuth } from '@/contexts/auth-context'
+import { getSupabaseConfigError } from '@/lib/supabase'
 
 export function AuthPage() {
-	const { signIn, signUp } = useAuth()
+	const { signIn, signUp, signInWithGoogle } = useAuth()
+	const configError = getSupabaseConfigError()
 	const [mode, setMode] = useState<'sign-in' | 'sign-up'>('sign-in')
 	const [email, setEmail] = useState('')
 	const [password, setPassword] = useState('')
 	const [message, setMessage] = useState<string | null>(null)
 	const [submitting, setSubmitting] = useState(false)
+
+	async function handleGoogleSignIn() {
+		setSubmitting(true)
+		setMessage(null)
+
+		const error = await signInWithGoogle()
+		if (error) {
+			setMessage(error)
+			setSubmitting(false)
+		}
+	}
 
 	async function handleSubmit(e: React.FormEvent) {
 		e.preventDefault()
@@ -48,7 +63,30 @@ export function AuthPage() {
 						</CardDescription>
 					</div>
 				</CardHeader>
-				<CardContent>
+				<CardContent className="space-y-4">
+					{configError && (
+						<p className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+							{configError}
+						</p>
+					)}
+
+					<Button
+						type="button"
+						variant="outline"
+						className="w-full gap-2"
+						disabled={submitting || Boolean(configError)}
+						onClick={() => void handleGoogleSignIn()}
+					>
+						<GoogleIcon />
+						Continue with Google
+					</Button>
+
+					<div className="flex items-center gap-3">
+						<Separator className="flex-1" />
+						<span className="text-xs text-muted-foreground">or</span>
+						<Separator className="flex-1" />
+					</div>
+
 					<form className="space-y-4" onSubmit={handleSubmit}>
 						<div className="space-y-2">
 							<Label htmlFor="email">Email</Label>
@@ -87,7 +125,7 @@ export function AuthPage() {
 						</Button>
 					</form>
 
-					<div className="mt-4 text-center text-sm text-muted-foreground">
+					<div className="text-center text-sm text-muted-foreground">
 						{mode === 'sign-in' ? (
 							<>
 								No account?{' '}

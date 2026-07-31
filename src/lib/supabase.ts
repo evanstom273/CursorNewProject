@@ -22,6 +22,18 @@ export function createSupabaseClient(): SupabaseClient | null {
 
 export const supabase = createSupabaseClient()
 
+export const isSupabaseConfigured = Boolean(supabaseUrl && supabaseAnonKey)
+
+export function getSupabaseConfigError(): string | null {
+	if (isSupabaseConfigured) return null
+
+	if (import.meta.env.PROD) {
+		return 'Supabase env vars are missing on this deployment. In Vercel → Settings → Environment Variables, add VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY, then redeploy.'
+	}
+
+	return 'Supabase env vars are missing locally. Create .env.local from .env.example, add your keys, then restart npm run dev.'
+}
+
 declare global {
 	interface Window {
 		__supabase?: SupabaseClient | null

@@ -1,6 +1,6 @@
 import type { Session, User } from '@supabase/supabase-js'
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
-import { supabase } from '@/lib/supabase'
+import { supabase, getSupabaseConfigError } from '@/lib/supabase'
 
 interface AuthContextValue {
 	user: User | null
@@ -8,6 +8,7 @@ interface AuthContextValue {
 	loading: boolean
 	signIn: (email: string, password: string) => Promise<string | null>
 	signUp: (email: string, password: string) => Promise<string | null>
+	signInWithGoogle: () => Promise<string | null>
 	signOut: () => Promise<void>
 }
 
@@ -39,6 +40,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 	}, [])
 
 	const signIn = useCallback(async (email: string, password: string) => {
+		const configError = getSupabaseConfigError()
+		if (configError) return configError
 		if (!supabase) return 'Supabase is not configured.'
 
 		const { error } = await supabase.auth.signInWithPassword({ email, password })
@@ -46,9 +49,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 	}, [])
 
 	const signUp = useCallback(async (email: string, password: string) => {
+		const configError = getSupabaseConfigError()
+		if (configError) return configError
 		if (!supabase) return 'Supabase is not configured.'
 
 		const { error } = await supabase.auth.signUp({ email, password })
+		return error?.message ?? null
+	}, [])
+
+	const signInWithGoogle = useCallback(async () => {
+		const configError = getSupabaseConfigError()
+		if (configError) return configError
+		if (!supabase) return 'Supabase is not configured.'
+
+		const { error } = await supabase.auth.signInWithOAuth({
+			provider: 'google',
+			options: {
+				redirectTo: window.location.origin,
+			},
+		})
+
 		return error?.message ?? null
 	}, [])
 
@@ -64,9 +84,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 			loading,
 			signIn,
 			signUp,
+			signInWithGoogle,
 			signOut,
 		}),
-		[session, loading, signIn, signUp, signOut],
+		[session, loading, signIn, signUp, signInWithGoogle, signOut],
 	)
 
 	return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
