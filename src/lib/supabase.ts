@@ -24,10 +24,18 @@ export const supabase = createSupabaseClient()
 
 declare global {
 	interface Window {
-		__supabase?: SupabaseClient
+		__supabase?: SupabaseClient | null
 	}
 }
 
-if (import.meta.env.DEV && supabase) {
+if (import.meta.env.DEV) {
 	window.__supabase = supabase
+
+	if (!supabase) {
+		console.warn(
+			'[supabase] Client not configured. Add VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY to .env.local, then restart npm run dev.',
+		)
+	} else {
+		console.info('[supabase] Dev client ready — use window.__supabase in the console.')
+	}
 }
