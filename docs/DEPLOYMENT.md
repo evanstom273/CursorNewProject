@@ -16,6 +16,14 @@
 
 Replace `your-app.vercel.app` with your real Vercel domain after the first deploy.
 
+### Google sign-in (optional)
+
+1. **Supabase → Authentication → Providers → Google** — enable and copy the callback URL
+2. **Google Cloud Console → Credentials → OAuth client ID** (Web application)
+   - Authorized JavaScript origins: `http://localhost:5173`, your Vercel URL
+   - Authorized redirect URIs: the Supabase callback URL
+3. Paste **Client ID** and **Client Secret** into Supabase Google provider settings
+
 ## 2. Supabase: run SQL migrations
 
 In **SQL Editor**, run in order:
