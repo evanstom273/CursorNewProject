@@ -21,3 +21,13 @@ export function createSupabaseClient(): SupabaseClient | null {
 }
 
 export const supabase = createSupabaseClient()
+
+declare global {
+	interface Window {
+		__supabase?: SupabaseClient
+	}
+}
+
+if (import.meta.env.DEV && supabase) {
+	window.__supabase = supabase
+}
