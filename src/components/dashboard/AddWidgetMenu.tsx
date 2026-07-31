@@ -8,6 +8,7 @@ import {
 	DropdownMenuSeparator,
 	DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
+import { requestDashboardSave } from '@/lib/dashboard-interaction'
 import { widgetList } from '@/widgets/registry'
 import { useDashboardStore } from '@/stores/dashboard-store'
 
@@ -33,7 +34,10 @@ export function AddWidgetMenu() {
 				{widgetList.map((widget) => (
 					<DropdownMenuItem
 						key={widget.type}
-						onClick={() => addWidget(widget.type)}
+						onClick={() => {
+							addWidget(widget.type)
+							requestDashboardSave()
+						}}
 						className="gap-2"
 					>
 						<widget.icon className="size-4" aria-hidden="true" />

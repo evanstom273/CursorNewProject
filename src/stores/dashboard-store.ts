@@ -68,6 +68,7 @@ interface DashboardState {
 	setDashboard: (instances: WidgetInstance[], layouts: LayoutsByBreakpoint) => void
 	setHydrated: (hydrated: boolean) => void
 	setLayouts: (breakpoint: GridBreakpoint, layout: WidgetLayoutItem[]) => void
+	replaceLayouts: (layouts: LayoutsByBreakpoint) => void
 	addWidget: (type: WidgetType) => void
 	removeWidget: (instanceId: string) => void
 	resetDashboard: () => void
@@ -85,6 +86,7 @@ export const useDashboardStore = create<DashboardState>()((set) => ({
 		set((state) => ({
 			layouts: { ...state.layouts, [breakpoint]: layout },
 		})),
+	replaceLayouts: (layouts) => set({ layouts }),
 	addWidget: (type) => {
 		const definition = widgetList.find((w) => w.type === type)
 		if (!definition) return
