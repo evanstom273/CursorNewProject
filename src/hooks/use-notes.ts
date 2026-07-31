@@ -32,6 +32,22 @@ function getDefaultNotes(): Note[] {
 	]
 }
 
+function formatNotesError(fetchError: { code?: string; message: string }): string {
+	if (fetchError.code === 'PGRST205') {
+		return 'Notes table not found in API — run supabase/notes.sql in the Supabase SQL Editor.'
+	}
+
+	if (fetchError.code === '42703' || fetchError.message.includes('column notes.')) {
+		return 'Notes table schema is outdated — re-run supabase/notes.sql in the Supabase SQL Editor to add missing columns.'
+	}
+
+	if (fetchError.code === '42501' || fetchError.message.toLowerCase().includes('row-level security')) {
+		return 'Notes table RLS is blocking access — re-run supabase/notes.sql to update policies.'
+	}
+
+	return fetchError.message
+}
+
 export function useNotes() {
 	const [notes, setNotes] = useState<Note[]>([])
 	const [loading, setLoading] = useState(true)
@@ -59,11 +75,7 @@ export function useNotes() {
 		if (fetchError) {
 			setNotes(loadLocalNotes())
 			setUsingLocalFallback(true)
-			setError(
-				fetchError.code === 'PGRST205' || fetchError.message.includes('does not exist')
-					? 'Notes table missing — run supabase/notes.sql in the Supabase SQL Editor.'
-					: fetchError.message,
-			)
+			setError(formatNotesError(fetchError))
 			setLoading(false)
 			return
 		}
@@ -73,7 +85,7 @@ export function useNotes() {
 			setNotes(defaults)
 			setUsingLocalFallback(false)
 
-			await supabase.from('notes').insert(
+			const { error: insertError } = await supabase.from('notes').insert(
 				defaults.map((note) => ({
 					id: note.id,
 					client_id: clientId,
@@ -81,6 +93,12 @@ export function useNotes() {
 					position: note.position,
 				})),
 			)
+
+			if (insertError) {
+				saveLocalNotes(defaults)
+				setUsingLocalFallback(true)
+				setError(formatNotesError(insertError))
+			}
 		} else {
 			setNotes(data)
 			setUsingLocalFallback(false)
@@ -116,9 +134,10 @@ export function useNotes() {
 		if (upsertError) {
 			saveLocalNotes(nextNotes)
 			setUsingLocalFallback(true)
-			setError(upsertError.message)
+			setError(formatNotesError(upsertError))
 		} else {
 			setUsingLocalFallback(false)
+			setError(null)
 		}
 	}, [])
 
@@ -150,7 +169,7 @@ export function useNotes() {
 				const { error: deleteError } = await supabase.from('notes').delete().eq('id', id)
 				if (deleteError) {
 					setUsingLocalFallback(true)
-					setError(deleteError.message)
+					setError(formatNotesError(deleteError))
 				}
 			}
 
