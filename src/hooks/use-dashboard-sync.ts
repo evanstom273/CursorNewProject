@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useAuth } from '@/contexts/auth-context'
 import { supabase } from '@/lib/supabase'
 import {
@@ -9,7 +9,7 @@ import {
 } from '@/stores/dashboard-store'
 import type { WidgetInstance } from '@/widgets/types'
 
-const SAVE_DEBOUNCE_MS = 600
+const LAYOUT_SAVE_DEBOUNCE_MS = 500
 
 function isLayoutsByBreakpoint(value: unknown): value is LayoutsByBreakpoint {
 	if (!value || typeof value !== 'object') return false
@@ -28,92 +28,215 @@ export function useDashboardSync() {
 	const hydrated = useDashboardStore((s) => s.hydrated)
 	const setDashboard = useDashboardStore((s) => s.setDashboard)
 	const setHydrated = useDashboardStore((s) => s.setHydrated)
-	const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-	const isLoadingRef = useRef(false)
 
-	useEffect(() => {
-		if (!user || !supabase) {
-			setHydrated(true)
-			return
-		}
+	const [syncError, setSyncError] = useState<string | null>(null)
+	const readyToSyncRef = useRef(false)
+	const layoutTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+	const instancesRef = useRef(instances)
+	const layoutsRef = useRef(layouts)
+	const isApplyingRemoteRef = useRef(false)
+	const lastRemoteUpdatedAtRef = useRef<string | null>(null)
 
-		let cancelled = false
-		isLoadingRef.current = true
+	instancesRef.current = instances
+	layoutsRef.current = layouts
 
-		async function loadDashboard() {
-			const { data, error } = await supabase!
-				.from('dashboard_layouts')
-				.select('instances, layouts')
-				.eq('user_id', user!.id)
-				.maybeSingle()
-
-			if (cancelled) return
-
-			if (error) {
-				console.error('[dashboard] Failed to load layout:', error.message)
-				setHydrated(true)
-				isLoadingRef.current = false
+	const persistDashboard = useCallback(
+		async (source: 'local' | 'remote' = 'local') => {
+			if (!user || !supabase || !readyToSyncRef.current || isApplyingRemoteRef.current) {
 				return
 			}
 
-			if (
-				data &&
-				isWidgetInstanceArray(data.instances) &&
-				isLayoutsByBreakpoint(data.layouts)
-			) {
-				setDashboard(data.instances, data.layouts)
-			} else if (!data) {
-				const defaultInstances = createDefaultInstances()
-				const defaultLayouts = createDefaultLayouts(defaultInstances)
-				setDashboard(defaultInstances, defaultLayouts)
-
-				await supabase!.from('dashboard_layouts').upsert({
-					user_id: user!.id,
-					instances: defaultInstances,
-					layouts: defaultLayouts,
+			const { error } = await supabase.from('dashboard_layouts').upsert(
+				{
+					user_id: user.id,
+					instances: instancesRef.current,
+					layouts: layoutsRef.current,
 					updated_at: new Date().toISOString(),
-				})
+				},
+				{ onConflict: 'user_id' },
+			)
+
+			if (error) {
+				console.error('[dashboard] Failed to save layout:', error.message)
+				if (source === 'local') {
+					setSyncError(
+						error.code === 'PGRST205'
+							? 'Dashboard sync table missing — run supabase/dashboard_layouts.sql in Supabase.'
+							: `Failed to save dashboard: ${error.message}`,
+					)
+				}
+				return
 			}
 
+			if (source === 'local') {
+				setSyncError(null)
+			}
+		},
+		[user],
+	)
+
+	const loadDashboard = useCallback(async () => {
+		if (!user || !supabase) {
 			setHydrated(true)
-			isLoadingRef.current = false
+			readyToSyncRef.current = true
+			return
 		}
 
+		readyToSyncRef.current = false
 		setHydrated(false)
+		setSyncError(null)
+
+		const { data, error } = await supabase
+			.from('dashboard_layouts')
+			.select('instances, layouts, updated_at')
+			.eq('user_id', user.id)
+			.maybeSingle()
+
+		if (error) {
+			console.error('[dashboard] Failed to load layout:', error.message)
+			setSyncError(
+				error.code === 'PGRST205'
+					? 'Dashboard sync table missing — run supabase/dashboard_layouts.sql in Supabase.'
+					: `Failed to load dashboard: ${error.message}`,
+			)
+			setHydrated(true)
+			readyToSyncRef.current = true
+			return
+		}
+
+		if (data && isWidgetInstanceArray(data.instances) && isLayoutsByBreakpoint(data.layouts)) {
+			isApplyingRemoteRef.current = true
+			setDashboard(data.instances, data.layouts)
+			lastRemoteUpdatedAtRef.current = data.updated_at ?? null
+			isApplyingRemoteRef.current = false
+		} else if (!data) {
+			const defaultInstances = createDefaultInstances()
+			const defaultLayouts = createDefaultLayouts(defaultInstances)
+			isApplyingRemoteRef.current = true
+			setDashboard(defaultInstances, defaultLayouts)
+			isApplyingRemoteRef.current = false
+
+			await persistDashboard('local')
+		}
+
+		setHydrated(true)
+		readyToSyncRef.current = true
+	}, [user, setDashboard, setHydrated, persistDashboard])
+
+	// Initial load + refetch when user changes
+	useEffect(() => {
 		void loadDashboard()
+	}, [loadDashboard])
+
+	// Refetch when tab regains focus (picks up changes from other devices)
+	useEffect(() => {
+		function handleFocus() {
+			if (document.visibilityState === 'visible') {
+				void loadDashboard()
+			}
+		}
+
+		window.addEventListener('focus', handleFocus)
+		document.addEventListener('visibilitychange', handleFocus)
 
 		return () => {
-			cancelled = true
+			window.removeEventListener('focus', handleFocus)
+			document.removeEventListener('visibilitychange', handleFocus)
 		}
-	}, [user, setDashboard, setHydrated])
+	}, [loadDashboard])
+
+	// Realtime: apply remote changes from other devices immediately
+	useEffect(() => {
+		if (!user || !supabase) return
+
+		const channel = supabase
+			.channel(`dashboard-layout-${user.id}`)
+			.on(
+				'postgres_changes',
+				{
+					event: '*',
+					schema: 'public',
+					table: 'dashboard_layouts',
+					filter: `user_id=eq.${user.id}`,
+				},
+				(payload) => {
+					const row = payload.new as {
+						instances?: unknown
+						layouts?: unknown
+						updated_at?: string
+					}
+
+					if (!row?.instances || !row?.layouts) return
+					if (row.updated_at && row.updated_at === lastRemoteUpdatedAtRef.current) return
+
+					if (
+						isWidgetInstanceArray(row.instances) &&
+						isLayoutsByBreakpoint(row.layouts)
+					) {
+						isApplyingRemoteRef.current = true
+						setDashboard(row.instances, row.layouts)
+						lastRemoteUpdatedAtRef.current = row.updated_at ?? null
+						isApplyingRemoteRef.current = false
+					}
+				},
+			)
+			.subscribe()
+
+		return () => {
+			if (supabase) {
+				void supabase.removeChannel(channel)
+			}
+		}
+	}, [user, setDashboard])
+
+	// Save immediately when widgets are added or removed
+	const instancesKey = JSON.stringify(instances)
 
 	useEffect(() => {
-		if (!user || !supabase || !hydrated || isLoadingRef.current) return
+		if (!hydrated || !readyToSyncRef.current || isApplyingRemoteRef.current) return
+		void persistDashboard('local')
+	}, [hydrated, instancesKey, persistDashboard])
 
-		if (saveTimerRef.current) {
-			clearTimeout(saveTimerRef.current)
+	// Debounce layout-only changes (drag / resize)
+	useEffect(() => {
+		if (!hydrated || !readyToSyncRef.current || isApplyingRemoteRef.current) return
+
+		if (layoutTimerRef.current) {
+			clearTimeout(layoutTimerRef.current)
 		}
 
-		saveTimerRef.current = setTimeout(() => {
-			void supabase!
-				.from('dashboard_layouts')
-				.upsert({
-					user_id: user.id,
-					instances,
-					layouts,
-					updated_at: new Date().toISOString(),
-				})
-				.then(({ error }) => {
-					if (error) {
-						console.error('[dashboard] Failed to save layout:', error.message)
-					}
-				})
-		}, SAVE_DEBOUNCE_MS)
+		layoutTimerRef.current = setTimeout(() => {
+			void persistDashboard('local')
+		}, LAYOUT_SAVE_DEBOUNCE_MS)
 
 		return () => {
-			if (saveTimerRef.current) {
-				clearTimeout(saveTimerRef.current)
+			if (layoutTimerRef.current) {
+				clearTimeout(layoutTimerRef.current)
 			}
 		}
-	}, [user, instances, layouts, hydrated])
+	}, [hydrated, layouts, persistDashboard])
+
+	// Flush pending save when user leaves the page
+	useEffect(() => {
+		function flush() {
+			if (!readyToSyncRef.current) return
+			if (layoutTimerRef.current) {
+				clearTimeout(layoutTimerRef.current)
+			}
+			void persistDashboard('local')
+		}
+
+		window.addEventListener('pagehide', flush)
+		document.addEventListener('visibilitychange', () => {
+			if (document.visibilityState === 'hidden') {
+				flush()
+			}
+		})
+
+		return () => {
+			window.removeEventListener('pagehide', flush)
+		}
+	}, [persistDashboard])
+
+	return { syncError, reload: loadDashboard }
 }

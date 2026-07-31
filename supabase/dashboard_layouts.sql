@@ -40,4 +40,12 @@ create policy "dashboard_layouts_delete_own"
 	to authenticated
 	using (auth.uid() = user_id);
 
+-- Enable realtime so other devices pick up layout changes immediately
+do $$
+begin
+	alter publication supabase_realtime add table dashboard_layouts;
+exception
+	when duplicate_object then null;
+end $$;
+
 notify pgrst, 'reload schema';
