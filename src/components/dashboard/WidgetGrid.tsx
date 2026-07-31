@@ -74,6 +74,7 @@ export function WidgetGrid() {
 			margin={[16, 16]}
 			containerPadding={[0, 0]}
 			draggableHandle=".widget-drag-handle"
+			draggableCancel="textarea, input, button, select, a, .no-drag"
 			onLayoutChange={onLayoutChange}
 			compactType="vertical"
 			useCSSTransforms
