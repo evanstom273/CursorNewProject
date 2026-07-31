@@ -30,6 +30,7 @@ In **SQL Editor**, run in order:
 
 1. `supabase/notes.sql` — table + columns
 2. `supabase/auth.sql` — per-user Row Level Security policies
+3. `supabase/dashboard_layouts.sql` — sync widget layout across devices
 
 ## 3. Deploy to Vercel
 

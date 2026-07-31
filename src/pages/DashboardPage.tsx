@@ -1,6 +1,19 @@
 import { WidgetGrid } from '@/components/dashboard/WidgetGrid'
+import { useDashboardSync } from '@/hooks/use-dashboard-sync'
+import { useDashboardStore } from '@/stores/dashboard-store'
 
 export function DashboardPage() {
+	useDashboardSync()
+	const hydrated = useDashboardStore((s) => s.hydrated)
+
+	if (!hydrated) {
+		return (
+			<div className="flex h-64 items-center justify-center text-sm text-muted-foreground">
+				Syncing dashboard…
+			</div>
+		)
+	}
+
 	return (
 		<div className="mx-auto w-full max-w-screen-2xl">
 			<div className="mb-6">

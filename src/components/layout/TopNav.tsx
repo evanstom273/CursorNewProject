@@ -1,4 +1,5 @@
-import { LogOut, Menu, Plus, Search, User } from 'lucide-react'
+import { LogOut, Menu, Search, User } from 'lucide-react'
+import { AddWidgetMenu } from '@/components/dashboard/AddWidgetMenu'
 import { Button } from '@/components/ui/button'
 import {
 	DropdownMenu,
@@ -11,11 +12,8 @@ import {
 import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet'
 import { Sidebar } from '@/components/layout/Sidebar'
 import { useAuth } from '@/contexts/auth-context'
-import { widgetList } from '@/widgets/registry'
-import { useDashboardStore } from '@/stores/dashboard-store'
 
 export function TopNav() {
-	const addWidget = useDashboardStore((s) => s.addWidget)
 	const { user, signOut } = useAuth()
 
 	return (
@@ -47,28 +45,7 @@ export function TopNav() {
 			</div>
 
 			<div className="flex items-center gap-1">
-				<DropdownMenu>
-					<DropdownMenuTrigger asChild>
-						<Button variant="outline" size="sm" className="hidden gap-2 sm:inline-flex">
-							<Plus className="size-4" aria-hidden="true" />
-							Add widget
-						</Button>
-					</DropdownMenuTrigger>
-					<DropdownMenuContent align="end" className="w-48">
-						<DropdownMenuLabel>Available widgets</DropdownMenuLabel>
-						<DropdownMenuSeparator />
-						{widgetList.map((widget) => (
-							<DropdownMenuItem
-								key={widget.type}
-								onClick={() => addWidget(widget.type)}
-								className="gap-2"
-							>
-								<widget.icon className="size-4" aria-hidden="true" />
-								{widget.title}
-							</DropdownMenuItem>
-						))}
-					</DropdownMenuContent>
-				</DropdownMenu>
+				<AddWidgetMenu />
 
 				<DropdownMenu>
 					<DropdownMenuTrigger asChild>
