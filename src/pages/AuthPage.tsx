@@ -7,9 +7,11 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Separator } from '@/components/ui/separator'
 import { useAuth } from '@/contexts/auth-context'
+import { getSupabaseConfigError } from '@/lib/supabase'
 
 export function AuthPage() {
 	const { signIn, signUp, signInWithGoogle } = useAuth()
+	const configError = getSupabaseConfigError()
 	const [mode, setMode] = useState<'sign-in' | 'sign-up'>('sign-in')
 	const [email, setEmail] = useState('')
 	const [password, setPassword] = useState('')
@@ -62,11 +64,17 @@ export function AuthPage() {
 					</div>
 				</CardHeader>
 				<CardContent className="space-y-4">
+					{configError && (
+						<p className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+							{configError}
+						</p>
+					)}
+
 					<Button
 						type="button"
 						variant="outline"
 						className="w-full gap-2"
-						disabled={submitting}
+						disabled={submitting || Boolean(configError)}
 						onClick={() => void handleGoogleSignIn()}
 					>
 						<GoogleIcon />
