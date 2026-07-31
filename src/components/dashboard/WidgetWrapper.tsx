@@ -2,6 +2,7 @@ import { GripVertical, X } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { requestDashboardSave } from '@/lib/dashboard-interaction'
 import { useDashboardStore } from '@/stores/dashboard-store'
 
 interface WidgetWrapperProps {
@@ -28,7 +29,10 @@ export function WidgetWrapper({ instanceId, title, children }: WidgetWrapperProp
 					variant="ghost"
 					size="icon"
 					className="size-7 shrink-0"
-					onClick={() => removeWidget(instanceId)}
+					onClick={() => {
+						removeWidget(instanceId)
+						requestDashboardSave()
+					}}
 					aria-label={`Remove ${title} widget`}
 				>
 					<X className="size-3.5" />

@@ -1,14 +1,18 @@
-import { useCallback, useMemo } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Responsive, WidthProvider, type Layout } from 'react-grid-layout'
 import 'react-grid-layout/css/styles.css'
 import 'react-resizable/css/styles.css'
 import { WidgetWrapper } from '@/components/dashboard/WidgetWrapper'
-import { requestLayoutSave } from '@/lib/dashboard-interaction'
+import {
+	requestDashboardSave,
+	setGridInteracting,
+} from '@/lib/dashboard-interaction'
 import {
 	GRID_BREAKPOINTS,
 	GRID_COLS,
 	useDashboardStore,
 	type GridBreakpoint,
+	type LayoutsByBreakpoint,
 } from '@/stores/dashboard-store'
 import { getWidgetDefinition } from '@/widgets/registry'
 import type { WidgetLayoutItem } from '@/widgets/types'
@@ -29,33 +33,78 @@ function toWidgetLayoutItems(layout: Layout[]): WidgetLayoutItem[] {
 	}))
 }
 
+function fromStoreLayouts(layouts: LayoutsByBreakpoint): Record<string, Layout[]> {
+	return Object.fromEntries(
+		(Object.keys(layouts) as GridBreakpoint[]).map((bp) => [bp, layouts[bp]]),
+	)
+}
+
+function toStoreLayouts(allLayouts: Record<string, Layout[]>): LayoutsByBreakpoint {
+	const result = {} as LayoutsByBreakpoint
+	for (const bp of Object.keys(GRID_BREAKPOINTS) as GridBreakpoint[]) {
+		const layout = allLayouts[bp]
+		if (layout) {
+			result[bp] = toWidgetLayoutItems(layout)
+		}
+	}
+	return result
+}
+
 export function WidgetGrid() {
 	const instances = useDashboardStore((s) => s.instances)
-	const layouts = useDashboardStore((s) => s.layouts)
-	const setLayouts = useDashboardStore((s) => s.setLayouts)
+	const storeLayouts = useDashboardStore((s) => s.layouts)
+	const replaceLayouts = useDashboardStore((s) => s.replaceLayouts)
+
+	const [gridLayouts, setGridLayouts] = useState(() => fromStoreLayouts(storeLayouts))
+	const gridLayoutsRef = useRef(gridLayouts)
+	const interactingRef = useRef(false)
+
+	useEffect(() => {
+		gridLayoutsRef.current = gridLayouts
+	}, [gridLayouts])
+
+	useEffect(() => {
+		if (!interactingRef.current) {
+			setGridLayouts(fromStoreLayouts(storeLayouts))
+		}
+	}, [storeLayouts])
+
+	const commitLayouts = useCallback(
+		(allLayouts: Record<string, Layout[]>) => {
+			const nextLayouts = toStoreLayouts(allLayouts)
+			setGridLayouts(fromStoreLayouts(nextLayouts))
+			replaceLayouts(nextLayouts)
+		},
+		[replaceLayouts],
+	)
 
 	const onLayoutChange = useCallback(
 		(_currentLayout: Layout[], allLayouts: Record<string, Layout[]>) => {
-			for (const bp of Object.keys(GRID_BREAKPOINTS) as GridBreakpoint[]) {
-				const layout = allLayouts[bp]
-				if (layout) {
-					setLayouts(bp, toWidgetLayoutItems(layout))
-				}
+			gridLayoutsRef.current = allLayouts
+			if (interactingRef.current) {
+				setGridLayouts(allLayouts)
+				return
 			}
+			commitLayouts(allLayouts)
 		},
-		[setLayouts],
+		[commitLayouts],
 	)
 
-	const onInteractionStop = useCallback(() => {
-		requestLayoutSave()
+	const onInteractionStart = useCallback(() => {
+		interactingRef.current = true
+		setGridInteracting(true)
 	}, [])
 
-	const gridLayouts = useMemo(
-		() =>
-			Object.fromEntries(
-				(Object.keys(layouts) as GridBreakpoint[]).map((bp) => [bp, layouts[bp]]),
-			),
-		[layouts],
+	const onInteractionStop = useCallback(() => {
+		interactingRef.current = false
+		setGridInteracting(false)
+		commitLayouts(gridLayoutsRef.current)
+		requestDashboardSave()
+	}, [commitLayouts])
+
+	const layoutsKey = useMemo(
+		() => instances.map((instance) => instance.id).join(','),
+		[instances],
 	)
 
 	if (instances.length === 0) {
@@ -71,6 +120,7 @@ export function WidgetGrid() {
 
 	return (
 		<ResponsiveGridLayout
+			key={layoutsKey}
 			className="widget-grid"
 			breakpoints={GRID_BREAKPOINTS}
 			cols={GRID_COLS}
@@ -81,7 +131,9 @@ export function WidgetGrid() {
 			draggableHandle=".widget-drag-handle"
 			draggableCancel="textarea, input, button, select, a, .no-drag"
 			onLayoutChange={onLayoutChange}
+			onDragStart={onInteractionStart}
 			onDragStop={onInteractionStop}
+			onResizeStart={onInteractionStart}
 			onResizeStop={onInteractionStop}
 			compactType="vertical"
 			useCSSTransforms

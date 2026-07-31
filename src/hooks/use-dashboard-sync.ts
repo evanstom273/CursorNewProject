@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useAuth } from '@/contexts/auth-context'
 import {
+	isGridInteracting,
 	isRemotePaused,
-	markLocalDashboardEdit,
-	registerLayoutSaveHandler,
+	registerDashboardSaveHandler,
 } from '@/lib/dashboard-interaction'
 import {
 	fetchDashboardRow,
@@ -19,24 +19,22 @@ import {
 	useDashboardStore,
 } from '@/stores/dashboard-store'
 
-const SAVE_DEBOUNCE_MS = 800
-
 export function useDashboardSync() {
 	const { user } = useAuth()
-	const instances = useDashboardStore((s) => s.instances)
-	const layouts = useDashboardStore((s) => s.layouts)
-	const hydrated = useDashboardStore((s) => s.hydrated)
 	const setDashboard = useDashboardStore((s) => s.setDashboard)
 	const setHydrated = useDashboardStore((s) => s.setHydrated)
 
 	const [syncError, setSyncError] = useState<string | null>(null)
 	const readyRef = useRef(false)
-	const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+	const savingRef = useRef(false)
 	const lastServerUpdatedAtRef = useRef<string | null>(null)
+	const pendingSaveUpdatedAtRef = useRef<string | null>(null)
 
 	const applyRemoteRow = useCallback(
 		(row: DashboardRow) => {
-			if (isRemotePaused()) return
+			if (isRemotePaused() || isGridInteracting()) return
+			if (row.updated_at === lastServerUpdatedAtRef.current) return
+			if (row.updated_at === pendingSaveUpdatedAtRef.current) return
 
 			setDashboard(row.instances, row.layouts)
 			lastServerUpdatedAtRef.current = row.updated_at
@@ -46,7 +44,7 @@ export function useDashboardSync() {
 
 	const persistDashboard = useCallback(
 		async (options: { keepalive?: boolean } = {}) => {
-			if (!user || !supabase || !readyRef.current) return
+			if (!user || !supabase || !readyRef.current || savingRef.current) return
 
 			const row: DashboardRow = {
 				user_id: user.id,
@@ -54,6 +52,9 @@ export function useDashboardSync() {
 				layouts: useDashboardStore.getState().layouts,
 				updated_at: new Date().toISOString(),
 			}
+
+			pendingSaveUpdatedAtRef.current = row.updated_at
+			lastServerUpdatedAtRef.current = row.updated_at
 
 			if (options.keepalive) {
 				const { data: sessionData } = await supabase.auth.getSession()
@@ -63,12 +64,14 @@ export function useDashboardSync() {
 
 				if (token && supabaseUrl && anonKey) {
 					saveDashboardRowKeepalive(supabaseUrl, anonKey, token, row)
-					lastServerUpdatedAtRef.current = row.updated_at
 					return
 				}
 			}
 
+			savingRef.current = true
 			const { data: saved, error } = await saveDashboardRow(supabase, row)
+			savingRef.current = false
+
 			if (error) {
 				console.error('[dashboard] Failed to save:', error)
 				setSyncError(
@@ -81,19 +84,12 @@ export function useDashboardSync() {
 
 			if (saved) {
 				lastServerUpdatedAtRef.current = saved.updated_at
+				pendingSaveUpdatedAtRef.current = saved.updated_at
 			}
 			setSyncError(null)
 		},
 		[user],
 	)
-
-	const scheduleSave = useCallback(() => {
-		markLocalDashboardEdit()
-		if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
-		saveTimerRef.current = setTimeout(() => {
-			void persistDashboard()
-		}, SAVE_DEBOUNCE_MS)
-	}, [persistDashboard])
 
 	const loadDashboard = useCallback(async () => {
 		if (!user || !supabase) {
@@ -116,35 +112,33 @@ export function useDashboardSync() {
 		}
 
 		if (data) {
-			applyRemoteRow(data)
+			setDashboard(data.instances, data.layouts)
+			lastServerUpdatedAtRef.current = data.updated_at
 		} else {
 			const defaultInstances = createDefaultInstances()
 			const defaultLayouts = createDefaultLayouts(defaultInstances)
 			setDashboard(defaultInstances, defaultLayouts)
-			markLocalDashboardEdit()
 			await persistDashboard()
 		}
 
 		setHydrated(true)
 		readyRef.current = true
-	}, [user, setDashboard, setHydrated, applyRemoteRow, persistDashboard])
+	}, [user, setDashboard, setHydrated, persistDashboard])
 
-	// Load once on sign-in
 	useEffect(() => {
 		readyRef.current = false
+		lastServerUpdatedAtRef.current = null
+		pendingSaveUpdatedAtRef.current = null
 		void loadDashboard()
 	}, [loadDashboard])
 
-	// Register immediate save after drag/resize stops
 	useEffect(() => {
-		registerLayoutSaveHandler(() => {
-			if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
+		registerDashboardSaveHandler(() => {
 			void persistDashboard()
 		})
-		return () => registerLayoutSaveHandler(null)
+		return () => registerDashboardSaveHandler(null)
 	}, [persistDashboard])
 
-	// Realtime updates from other devices
 	useEffect(() => {
 		if (!user || !supabase) return
 
@@ -159,10 +153,9 @@ export function useDashboardSync() {
 					filter: `user_id=eq.${user.id}`,
 				},
 				(payload) => {
-					if (isRemotePaused()) return
+					if (isRemotePaused() || isGridInteracting()) return
 					const remote = payload.new
 					if (!isDashboardRow(remote)) return
-					if (remote.updated_at === lastServerUpdatedAtRef.current) return
 					applyRemoteRow(remote)
 				},
 			)
@@ -175,19 +168,9 @@ export function useDashboardSync() {
 		}
 	}, [user, applyRemoteRow])
 
-	// Debounced save when instances or layouts change
-	const stateKey = JSON.stringify({ instances, layouts })
-
-	useEffect(() => {
-		if (!hydrated || !readyRef.current) return
-		scheduleSave()
-	}, [hydrated, stateKey, scheduleSave])
-
-	// Flush on tab close (mobile)
 	useEffect(() => {
 		function flush() {
-			if (!readyRef.current) return
-			if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
+			if (!readyRef.current || isGridInteracting()) return
 			void persistDashboard({ keepalive: true })
 		}
 
