@@ -1,12 +1,9 @@
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useMemo } from 'react'
 import { Responsive, WidthProvider, type Layout } from 'react-grid-layout'
 import 'react-grid-layout/css/styles.css'
 import 'react-resizable/css/styles.css'
 import { WidgetWrapper } from '@/components/dashboard/WidgetWrapper'
-import {
-	dashboardInteraction,
-	requestLayoutSave,
-} from '@/lib/dashboard-interaction'
+import { requestLayoutSave } from '@/lib/dashboard-interaction'
 import {
 	GRID_BREAKPOINTS,
 	GRID_COLS,
@@ -36,20 +33,9 @@ export function WidgetGrid() {
 	const instances = useDashboardStore((s) => s.instances)
 	const layouts = useDashboardStore((s) => s.layouts)
 	const setLayouts = useDashboardStore((s) => s.setLayouts)
-	const [currentBreakpoint, setCurrentBreakpoint] = useState<GridBreakpoint>('lg')
-
-	const applyBreakpointLayout = useCallback(
-		(layout: Layout[]) => {
-			setLayouts(currentBreakpoint, toWidgetLayoutItems(layout))
-		},
-		[currentBreakpoint, setLayouts],
-	)
 
 	const onLayoutChange = useCallback(
 		(_currentLayout: Layout[], allLayouts: Record<string, Layout[]>) => {
-			// Keep the controlled grid responsive during drag/resize only
-			if (!dashboardInteraction.isInteracting) return
-
 			for (const bp of Object.keys(GRID_BREAKPOINTS) as GridBreakpoint[]) {
 				const layout = allLayouts[bp]
 				if (layout) {
@@ -60,18 +46,9 @@ export function WidgetGrid() {
 		[setLayouts],
 	)
 
-	const onInteractionStart = useCallback(() => {
-		dashboardInteraction.isInteracting = true
+	const onInteractionStop = useCallback(() => {
+		requestLayoutSave()
 	}, [])
-
-	const onInteractionStop = useCallback(
-		(layout: Layout[]) => {
-			dashboardInteraction.isInteracting = false
-			applyBreakpointLayout(layout)
-			requestLayoutSave()
-		},
-		[applyBreakpointLayout],
-	)
 
 	const gridLayouts = useMemo(
 		() =>
@@ -103,11 +80,8 @@ export function WidgetGrid() {
 			containerPadding={[0, 0]}
 			draggableHandle=".widget-drag-handle"
 			draggableCancel="textarea, input, button, select, a, .no-drag"
-			onBreakpointChange={(bp) => setCurrentBreakpoint(bp as GridBreakpoint)}
 			onLayoutChange={onLayoutChange}
-			onDragStart={onInteractionStart}
 			onDragStop={onInteractionStop}
-			onResizeStart={onInteractionStart}
 			onResizeStop={onInteractionStop}
 			compactType="vertical"
 			useCSSTransforms
