@@ -1,5 +1,5 @@
 import { useCallback, useMemo } from 'react'
-import { Responsive, WidthProvider, type Layout } from 'react-grid-layout/legacy'
+import { Responsive, WidthProvider, type Layout } from 'react-grid-layout'
 import 'react-grid-layout/css/styles.css'
 import 'react-resizable/css/styles.css'
 import { WidgetWrapper } from '@/components/dashboard/WidgetWrapper'
@@ -14,7 +14,7 @@ import type { WidgetLayoutItem } from '@/widgets/types'
 
 const ResponsiveGridLayout = WidthProvider(Responsive)
 
-function toWidgetLayoutItems(layout: Layout): WidgetLayoutItem[] {
+function toWidgetLayoutItems(layout: Layout[]): WidgetLayoutItem[] {
 	return layout.map((item) => ({
 		i: item.i,
 		x: item.x,
@@ -34,7 +34,7 @@ export function WidgetGrid() {
 	const setLayouts = useDashboardStore((s) => s.setLayouts)
 
 	const onLayoutChange = useCallback(
-		(_currentLayout: Layout, allLayouts: Partial<Record<string, Layout>>) => {
+		(_currentLayout: Layout[], allLayouts: Record<string, Layout[]>) => {
 			for (const bp of Object.keys(GRID_BREAKPOINTS) as GridBreakpoint[]) {
 				const layout = allLayouts[bp]
 				if (layout) {

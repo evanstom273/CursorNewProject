@@ -1,27 +1,11 @@
 import { useCallback, useEffect, useState } from 'react'
-import { getClientId } from '@/lib/client-id'
+import { useAuth } from '@/contexts/auth-context'
 import { supabase } from '@/lib/supabase'
 
 export interface Note {
 	id: string
 	content: string
 	position: number
-}
-
-const LOCAL_STORAGE_KEY = 'dashboard-notes'
-
-function loadLocalNotes(): Note[] {
-	try {
-		const raw = localStorage.getItem(LOCAL_STORAGE_KEY)
-		if (!raw) return getDefaultNotes()
-		return JSON.parse(raw) as Note[]
-	} catch {
-		return getDefaultNotes()
-	}
-}
-
-function saveLocalNotes(notes: Note[]) {
-	localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(notes))
 }
 
 function getDefaultNotes(): Note[] {
@@ -38,44 +22,41 @@ function formatNotesError(fetchError: { code?: string; message: string }): strin
 	}
 
 	if (fetchError.code === '42703' || fetchError.message.includes('column notes.')) {
-		return 'Notes table schema is outdated — re-run supabase/notes.sql in the Supabase SQL Editor to add missing columns.'
+		return 'Notes table schema is outdated — re-run supabase/notes.sql in the Supabase SQL Editor.'
 	}
 
 	if (fetchError.code === '42501' || fetchError.message.toLowerCase().includes('row-level security')) {
-		return 'Notes table RLS is blocking access — re-run supabase/notes.sql to update policies.'
+		return 'Notes access denied — run supabase/auth.sql in the Supabase SQL Editor after enabling auth.'
 	}
 
 	return fetchError.message
 }
 
 export function useNotes() {
+	const { user } = useAuth()
 	const [notes, setNotes] = useState<Note[]>([])
 	const [loading, setLoading] = useState(true)
 	const [error, setError] = useState<string | null>(null)
-	const [usingLocalFallback, setUsingLocalFallback] = useState(false)
 
 	const loadNotes = useCallback(async () => {
 		setLoading(true)
 		setError(null)
 
-		if (!supabase) {
-			setNotes(loadLocalNotes())
-			setUsingLocalFallback(true)
+		if (!supabase || !user) {
+			setNotes(getDefaultNotes())
 			setLoading(false)
 			return
 		}
 
-		const clientId = getClientId()
 		const { data, error: fetchError } = await supabase
 			.from('notes')
 			.select('id, content, position')
-			.eq('client_id', clientId)
+			.eq('user_id', user.id)
 			.order('position', { ascending: true })
 
 		if (fetchError) {
-			setNotes(loadLocalNotes())
-			setUsingLocalFallback(true)
 			setError(formatNotesError(fetchError))
+			setNotes(getDefaultNotes())
 			setLoading(false)
 			return
 		}
@@ -83,63 +64,54 @@ export function useNotes() {
 		if (!data || data.length === 0) {
 			const defaults = getDefaultNotes()
 			setNotes(defaults)
-			setUsingLocalFallback(false)
 
 			const { error: insertError } = await supabase.from('notes').insert(
 				defaults.map((note) => ({
 					id: note.id,
-					client_id: clientId,
+					user_id: user.id,
 					content: note.content,
 					position: note.position,
 				})),
 			)
 
 			if (insertError) {
-				saveLocalNotes(defaults)
-				setUsingLocalFallback(true)
 				setError(formatNotesError(insertError))
 			}
 		} else {
 			setNotes(data)
-			setUsingLocalFallback(false)
 		}
 
 		setLoading(false)
-	}, [])
+	}, [user])
 
 	useEffect(() => {
 		void loadNotes()
 	}, [loadNotes])
 
-	const persistNotes = useCallback(async (nextNotes: Note[]) => {
-		setNotes(nextNotes)
+	const persistNotes = useCallback(
+		async (nextNotes: Note[]) => {
+			setNotes(nextNotes)
 
-		if (!supabase) {
-			saveLocalNotes(nextNotes)
-			setUsingLocalFallback(true)
-			return
-		}
+			if (!supabase || !user) return
 
-		const clientId = getClientId()
-		const { error: upsertError } = await supabase.from('notes').upsert(
-			nextNotes.map((note) => ({
-				id: note.id,
-				client_id: clientId,
-				content: note.content,
-				position: note.position,
-				updated_at: new Date().toISOString(),
-			})),
-		)
+			const { error: upsertError } = await supabase.from('notes').upsert(
+				nextNotes.map((note) => ({
+					id: note.id,
+					user_id: user.id,
+					content: note.content,
+					position: note.position,
+					updated_at: new Date().toISOString(),
+				})),
+			)
 
-		if (upsertError) {
-			saveLocalNotes(nextNotes)
-			setUsingLocalFallback(true)
-			setError(formatNotesError(upsertError))
-		} else {
-			setUsingLocalFallback(false)
-			setError(null)
-		}
-	}, [])
+			if (upsertError) {
+				setError(formatNotesError(upsertError))
+			} else {
+				setError(null)
+			}
+		},
+		[user],
+	)
 
 	const updateNote = useCallback(
 		(id: string, content: string) => {
@@ -165,24 +137,22 @@ export function useNotes() {
 				position: index,
 			}))
 
-			if (supabase && !usingLocalFallback) {
+			if (supabase && user) {
 				const { error: deleteError } = await supabase.from('notes').delete().eq('id', id)
 				if (deleteError) {
-					setUsingLocalFallback(true)
 					setError(formatNotesError(deleteError))
 				}
 			}
 
 			void persistNotes(nextNotes)
 		},
-		[notes, persistNotes, usingLocalFallback],
+		[notes, persistNotes, user],
 	)
 
 	return {
 		notes,
 		loading,
 		error,
-		usingLocalFallback,
 		updateNote,
 		addNote,
 		deleteNote,

@@ -10,6 +10,7 @@ create table if not exists public.notes (
 
 -- 2. Add columns the app expects (won't fail if they already exist)
 alter table public.notes
+	add column if not exists user_id uuid references auth.users(id) on delete cascade,
 	add column if not exists client_id text,
 	add column if not exists position integer not null default 0,
 	add column if not exists updated_at timestamptz not null default now();

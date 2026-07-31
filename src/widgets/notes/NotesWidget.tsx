@@ -5,8 +5,7 @@ import { useNotes } from '@/hooks/use-notes'
 import type { WidgetProps } from '../types'
 
 export function NotesWidget({ instanceId }: WidgetProps) {
-	const { notes, loading, error, usingLocalFallback, updateNote, addNote, deleteNote } =
-		useNotes()
+	const { notes, loading, error, updateNote, addNote, deleteNote } = useNotes()
 
 	if (loading) {
 		return (
@@ -58,11 +57,7 @@ export function NotesWidget({ instanceId }: WidgetProps) {
 				))}
 			</div>
 
-			<p className="text-xs text-muted-foreground/70">
-				{usingLocalFallback
-					? 'Saving locally — fix Supabase setup to sync across devices.'
-					: 'Saving to Supabase'}
-			</p>
+			<p className="text-xs text-muted-foreground/70">Saving to your account</p>
 		</div>
 	)
 }

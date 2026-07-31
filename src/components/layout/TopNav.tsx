@@ -1,4 +1,4 @@
-import { Bell, Menu, Plus, Search, User } from 'lucide-react'
+import { LogOut, Menu, Plus, Search, User } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
 	DropdownMenu,
@@ -10,11 +10,13 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet'
 import { Sidebar } from '@/components/layout/Sidebar'
+import { useAuth } from '@/contexts/auth-context'
 import { widgetList } from '@/widgets/registry'
 import { useDashboardStore } from '@/stores/dashboard-store'
 
 export function TopNav() {
 	const addWidget = useDashboardStore((s) => s.addWidget)
+	const { user, signOut } = useAuth()
 
 	return (
 		<header className="flex h-14 shrink-0 items-center gap-3 border-b border-border bg-background/80 px-4 backdrop-blur-sm">
@@ -68,13 +70,23 @@ export function TopNav() {
 					</DropdownMenuContent>
 				</DropdownMenu>
 
-				<Button variant="ghost" size="icon" aria-label="Notifications">
-					<Bell className="size-4" />
-				</Button>
-
-				<Button variant="ghost" size="icon" aria-label="User profile">
-					<User className="size-4" />
-				</Button>
+				<DropdownMenu>
+					<DropdownMenuTrigger asChild>
+						<Button variant="ghost" size="icon" aria-label="User menu">
+							<User className="size-4" />
+						</Button>
+					</DropdownMenuTrigger>
+					<DropdownMenuContent align="end" className="w-56">
+						<DropdownMenuLabel className="truncate font-normal">
+							{user?.email ?? 'Signed in'}
+						</DropdownMenuLabel>
+						<DropdownMenuSeparator />
+						<DropdownMenuItem onClick={() => void signOut()} className="gap-2">
+							<LogOut className="size-4" aria-hidden="true" />
+							Sign out
+						</DropdownMenuItem>
+					</DropdownMenuContent>
+				</DropdownMenu>
 			</div>
 		</header>
 	)
